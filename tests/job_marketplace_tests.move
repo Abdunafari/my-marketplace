@@ -4,7 +4,7 @@ module m_marketplace::job_marketplace_tests {
     use sui::coin::{Self, Coin};
     use sui::sui::SUI;
     use std::string::{Self};
-    use m_marketplace::job_marketplace::{Self, JobMarketplace, FreelancerProfile, Gig, WorkContract};
+    use m_marketplace::job_marketplace::{Self, JobMarketplace, FreelancerProfile, Gig, WorkContract, Review, Message};
 
     const ADMIN: address = @0xAD;
     const FREELANCER: address = @0x123;
@@ -76,6 +76,36 @@ module m_marketplace::job_marketplace_tests {
             let payment_coin = test_scenario::take_from_address<Coin<SUI>>(&scenario, FREELANCER);
             assert!(coin::value(&payment_coin) == 1000, 0);
             test_scenario::return_to_address(FREELANCER, payment_coin);
+        };
+
+        // 7. Client posts review
+        test_scenario::next_tx(&mut scenario, CLIENT);
+        {
+            let contract = test_scenario::take_shared<WorkContract<SUI>>(&scenario);
+            job_marketplace::post_review(
+                &contract,
+                5,
+                string::utf8(b"Great work!"),
+                test_scenario::ctx(&mut scenario)
+            );
+            test_scenario::return_shared(contract);
+        };
+
+        // 8. Freelancer sends message to Admin
+        test_scenario::next_tx(&mut scenario, FREELANCER);
+        {
+            job_marketplace::send_message(
+                ADMIN,
+                string::utf8(b"Hello Admin, I have a question."),
+                test_scenario::ctx(&mut scenario)
+            );
+        };
+
+        // 9. Admin checks message
+        test_scenario::next_tx(&mut scenario, ADMIN);
+        {
+            let message = test_scenario::take_from_address<Message>(&scenario, ADMIN);
+            test_scenario::return_to_address(ADMIN, message);
         };
 
         test_scenario::end(scenario);

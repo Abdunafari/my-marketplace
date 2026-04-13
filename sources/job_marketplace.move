@@ -12,6 +12,7 @@ module m_marketplace::job_marketplace {
     const EInvalidStatus: u64 = 1;
     const ENotAuthorized: u64 = 2;
     const EGigNotActive: u64 = 3;
+    const EInvalidRating: u64 = 4;
 
     // Work contract status
     const STATUS_ORDERED: u8 = 0;
@@ -23,6 +24,10 @@ module m_marketplace::job_marketplace {
         id: UID,
         admin: address,
     }
+
+    // This is a helper for admin to view specific freelancer data off-chain
+    // In Move, we often rely on events and object ownership for "views".
+    // But we can add explicit functions that admin can call if needed.
 
     public struct FreelancerProfile has key, store {
         id: UID,
@@ -48,6 +53,21 @@ module m_marketplace::job_marketplace {
         client: address,
         escrow: Balance<COIN>,
         status: u8,
+    }
+
+    public struct Review has key, store {
+        id: UID,
+        contract_id: ID,
+        freelancer: address,
+        rating: u8,
+        comment: String,
+    }
+
+    public struct Message has key, store {
+        id: UID,
+        sender: address,
+        receiver: address,
+        content: String,
     }
 
     // Events
@@ -89,6 +109,19 @@ module m_marketplace::job_marketplace {
     public struct DisputeResolved has copy, drop {
         contract_id: ID,
         released_to_freelancer: bool,
+    }
+
+    public struct ReviewPosted has copy, drop {
+        review_id: ID,
+        contract_id: ID,
+        freelancer: address,
+        rating: u8,
+    }
+
+    public struct MessageSent has copy, drop {
+        message_id: ID,
+        sender: address,
+        receiver: address,
     }
 
     fun init(ctx: &mut TxContext) {
@@ -228,6 +261,36 @@ module m_marketplace::job_marketplace {
         });
     }
 
+    public fun post_review<COIN>(
+        contract: &WorkContract<COIN>,
+        rating: u8,
+        comment: String,
+        ctx: &mut TxContext
+    ) {
+        assert!(tx_context::sender(ctx) == contract.client, ENotAuthorized);
+        assert!(contract.status == STATUS_COMPLETED, EInvalidStatus);
+        assert!(rating >= 1 && rating <= 5, EInvalidRating);
+
+        let id = object::new(ctx);
+        let review_id = object::uid_to_inner(&id);
+        let review = Review {
+            id,
+            contract_id: object::id(contract),
+            freelancer: contract.freelancer,
+            rating,
+            comment,
+        };
+
+        event::emit(ReviewPosted {
+            review_id,
+            contract_id: object::id(contract),
+            freelancer: contract.freelancer,
+            rating,
+        });
+
+        transfer::public_share_object(review);
+    }
+
     public fun approve_work<COIN>(
         contract: &mut WorkContract<COIN>,
         ctx: &mut TxContext
@@ -255,6 +318,37 @@ module m_marketplace::job_marketplace {
             ENotAuthorized
         );
         contract.status = STATUS_DISPUTED;
+    }
+
+    public fun send_message(
+        receiver: address,
+        content: String,
+        ctx: &mut TxContext
+    ) {
+        let sender = tx_context::sender(ctx);
+        let id = object::new(ctx);
+        let message_id = object::uid_to_inner(&id);
+        let message = Message {
+            id,
+            sender,
+            receiver,
+            content,
+        };
+
+        event::emit(MessageSent {
+            message_id,
+            sender,
+            receiver,
+        });
+
+        transfer::public_transfer(message, receiver);
+    }
+
+    // Admin functions to "overlook" (these are mostly for documentation of intent,
+    // as admin can already view shared objects and events off-chain)
+
+    public fun get_admin_address(marketplace: &JobMarketplace): address {
+        marketplace.admin
     }
 
     public fun resolve_dispute<COIN>(
